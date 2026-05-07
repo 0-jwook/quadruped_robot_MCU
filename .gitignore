@@ -1,0 +1,20 @@
+# Build output
+Debug/
+Release/
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+
+# Object & dependency files
+*.o
+*.d
+*.su
+*.cyclo
+
+# IDE settings (machine-specific)
+.settings/
+
+# macOS
+.DS_Store
