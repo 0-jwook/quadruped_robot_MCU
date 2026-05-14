@@ -1,29 +1,55 @@
 #include "Quadruped.hpp"
 #include <cstring>
+#include <algorithm>
 
-// ─────────────────────────────────────────────────────────────────────────────
-// static 멤버 정의 — ROM(Flash) 에 배치되며 인스턴스마다 복사되지 않음
-// [leg_idx][joint_idx] : 0=Hip, 1=Thigh, 2=Calf
-// ─────────────────────────────────────────────────────────────────────────────
 const uint8_t Quadruped::JOINT_CHANNELS[4][3] = {
-    { 0,  1,  2},   // FL : Front Left
-    { 4,  5,  6},   // FR : Front Right
-    { 8,  9, 10},   // BL : Back Left
-    {12, 13, 14}    // BR : Back Right
+    { 0,  1,  2},   // FL
+    { 4,  5,  6},   // FR
+    { 8,  9, 10},   // BL (RL)
+    {12, 13, 14}    // BR (RR)
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 생성자 — 현재 각도 캐시를 90° 중립으로 초기화
-// ─────────────────────────────────────────────────────────────────────────────
+// 다리를 아래로 완전히 폈을 때의 서보 기준 각도
+// 왼쪽(FL, BL): 종아리=180° / 오른쪽(FR, BR): 종아리=0°
+const float Quadruped::HOME_ANGLES[4][3] = {
+    {90.0f,   0.0f, 180.0f},  // FL (앞왼쪽):  허벅지 0°=수직하
+    {95.0f, 168.0f,   0.0f},  // FR (앞오른쪽): 허벅지 169°
+    {90.0f,   10.0f, 180.0f},  // BL (뒷왼쪽):  허벅지 0°=수직하
+    {95.0f, 180.0f,   10.0f},  // BR (뒷오른쪽): 허벅지 180°=수직하 (좌우 대칭 반전)
+};
+
 Quadruped::Quadruped(PCA9685* pca) : _pca(pca) {
-    for (int leg = 0; leg < 4; leg++)
-        for (int joint = 0; joint < 3; joint++)
+    for (int leg = 0; leg < 4; leg++) {
+        for (int joint = 0; joint < 3; joint++) {
             _current_angles[leg][joint] = 90.0f;
+            _configs[leg][joint].direction = 1;
+            _configs[leg][joint].offset = 0.0f;
+            _configs[leg][joint].min_limit = 0.0f;
+            _configs[leg][joint].max_limit = 180.0f;
+        }
+    }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 특정 다리의 3개 관절을 한 번에 설정
-// ─────────────────────────────────────────────────────────────────────────────
+void Quadruped::ConfigureJoint(uint8_t leg_idx, uint8_t joint_idx, int8_t dir, float offset) {
+    if (leg_idx >= 4 || joint_idx >= 3) return;
+    _configs[leg_idx][joint_idx].direction = dir;
+    _configs[leg_idx][joint_idx].offset = offset;
+}
+
+void Quadruped::SetJointAngle(uint8_t leg_idx, uint8_t joint_idx, float angle) {
+    if (leg_idx >= 4 || joint_idx >= 3) return;
+
+    // ROS2에서 계산된 최종 서보 각도를 아무런 가공 없이 그대로 출력합니다.
+    // 이를 통해 파이썬의 보정 로직과 STM32의 로직이 충돌하는 것을 방지합니다.
+    float final_angle = angle;
+
+    if (final_angle < 0.0f)   final_angle = 0.0f;
+    if (final_angle > 180.0f) final_angle = 180.0f;
+
+    _current_angles[leg_idx][joint_idx] = final_angle;
+    _pca->SetAngle(JOINT_CHANNELS[leg_idx][joint_idx], final_angle);
+}
+
 void Quadruped::SetLegAngle(uint8_t leg_idx, float hip, float thigh, float calf) {
     if (leg_idx >= 4) return;
     SetJointAngle(leg_idx, HIP,   hip);
@@ -31,38 +57,37 @@ void Quadruped::SetLegAngle(uint8_t leg_idx, float hip, float thigh, float calf)
     SetJointAngle(leg_idx, CALF,  calf);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 특정 단일 관절 설정
-//   · 각도 클램핑 (0~180°) — PCA9685 레벨에서도 하지만 여기서 한 번 더 검사
-//   · 캐시 업데이트 — GetJointAngle() 조회 시 I2C 읽기 없이 반환 가능
-// ─────────────────────────────────────────────────────────────────────────────
-void Quadruped::SetJointAngle(uint8_t leg_idx, uint8_t joint_idx, float angle) {
-    if (leg_idx >= 4 || joint_idx >= 3) return;
-
-    // 각도 범위 클램핑
-    if (angle <   0.0f) angle =   0.0f;
-    if (angle > 180.0f) angle = 180.0f;
-
-    _current_angles[leg_idx][joint_idx] = angle;
-    _pca->SetAngle(JOINT_CHANNELS[leg_idx][joint_idx], angle);
-    // HAL_Delay 제거: 400kHz I2C 에서 1 트랜잭션 ≈ 200μs 이므로 HAL 내부
-    // 타임아웃(100ms)으로도 충분. Delay(1)×12 = 12ms 누적 지연이 50Hz 주기(20ms)의
-    // 절반 이상을 소모해 walk 명령 무응답의 원인이 됐음.
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 현재 각도 조회 — 캐시에서 읽기 (I2C 통신 없음)
-// ─────────────────────────────────────────────────────────────────────────────
 float Quadruped::GetJointAngle(uint8_t leg_idx, uint8_t joint_idx) const {
     if (leg_idx >= 4 || joint_idx >= 3) return -1.0f;
     return _current_angles[leg_idx][joint_idx];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 기본 자세 — 모든 관절을 90° 중립으로 이동 (ESTOP / 초기화 시 사용)
-// ─────────────────────────────────────────────────────────────────────────────
 void Quadruped::SetDefaultPose() {
     for (uint8_t leg = 0; leg < 4; leg++) {
-        SetLegAngle(leg, 90.0f, 90.0f, 90.0f);
+        SetLegAngle(leg, HOME_ANGLES[leg][HIP], HOME_ANGLES[leg][THIGH], HOME_ANGLES[leg][CALF]);
     }
+}
+
+bool Quadruped::ComputeIK(float x, float y, float z, float& h, float& t, float& c) {
+    h = RadToDeg(atan2(y, x)) + 90.0f;
+    float r_xy = sqrt(x*x + y*y);
+    float r_effective = r_xy - L_COXA;
+    float d = sqrt(r_effective * r_effective + z * z);
+    if (d > (L_FEMUR + L_TIBIA) || d < fabsf(L_FEMUR - L_TIBIA)) return false;
+    float a1 = atan2(z, r_effective);
+    float a2 = acos((L_FEMUR*L_FEMUR + d*d - L_TIBIA*L_TIBIA) / (2 * L_FEMUR * d));
+    t = RadToDeg(a1 + a2) + 90.0f;
+    float a3 = acos((L_FEMUR*L_FEMUR + L_TIBIA*L_TIBIA - d*d) / (2 * L_FEMUR * L_TIBIA));
+    c = RadToDeg(a3);
+    if (std::isnan(h) || std::isnan(t) || std::isnan(c)) return false;
+    return true;
+}
+
+bool Quadruped::SetLegPosition(uint8_t leg_idx, float x, float y, float z) {
+    float h, t, c;
+    if (ComputeIK(x, y, z, h, t, c)) {
+        SetLegAngle(leg_idx, h, t, c);
+        return true;
+    }
+    return false;
 }
