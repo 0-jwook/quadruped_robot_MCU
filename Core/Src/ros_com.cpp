@@ -4,6 +4,14 @@
 #include <cstring>
 #include <cstdarg>
 
+// CRC-8 (polynomial 0x07, init 0x00) — 단순 합산보다 오류 검출률 대폭 향상
+static uint8_t CRC8Update(uint8_t crc, uint8_t byte) {
+    crc ^= byte;
+    for (uint8_t i = 0; i < 8; i++)
+        crc = (crc & 0x80) ? ((crc << 1) ^ 0x07) : (crc << 1);
+    return crc;
+}
+
 RosCom* g_ros_com = nullptr;
 
 RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
@@ -29,7 +37,15 @@ RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
 }
 
 void RosCom::StartReceive() {
+    // 에러 복구: HAL 상태 강제 초기화 후 재시작
     HAL_UART_AbortReceive(_huart);
+    _dma_pos = 0;
+    HAL_UARTEx_ReceiveToIdle_DMA(_huart, _dma_buf, ROS_DMA_BUF_SIZE);
+}
+
+void RosCom::RestartReceive() {
+    // TC 이벤트 후 재시작: DMA가 이미 완료된 상태이므로 Abort 불필요
+    // AbortReceive 생략으로 재시작 간격(바이트 유실 구간)을 최소화
     _dma_pos = 0;
     HAL_UARTEx_ReceiveToIdle_DMA(_huart, _dma_buf, ROS_DMA_BUF_SIZE);
 }
@@ -63,12 +79,12 @@ void RosCom::Process() {
                 break;
             case ID:
                 _current_id = byte;
-                _checksum += byte;
+                _checksum = CRC8Update(_checksum, byte);
                 _state = LENGTH;
                 break;
             case LENGTH:
                 _payload_len = byte;
-                _checksum += byte;
+                _checksum = CRC8Update(_checksum, byte);
                 _payload_idx = 0;
                 if (_payload_len > 0) _state = PAYLOAD;
                 else _state = CHECKSUM;
@@ -76,7 +92,7 @@ void RosCom::Process() {
             case PAYLOAD:
                 if (_payload_idx < sizeof(_payload_buf)) {
                     _payload_buf[_payload_idx++] = byte;
-                    _checksum += byte;
+                    _checksum = CRC8Update(_checksum, byte);
                 }
                 if (_payload_idx >= _payload_len) _state = CHECKSUM;
                 break;
@@ -151,9 +167,9 @@ uint8_t RosCom::RingRead() {
 extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
     if (huart->Instance == USART2 && g_ros_com != nullptr) {
         g_ros_com->OnRxEvent(Size);
-        // TC 이벤트(버퍼 가득 참)이면 DMA를 즉시 재시작
+        // TC 이벤트(버퍼 가득 참): DMA 이미 완료 → Abort 없이 즉시 재시작
         if (Size >= ROS_DMA_BUF_SIZE) {
-            g_ros_com->StartReceive();
+            g_ros_com->RestartReceive();
         }
     }
 }

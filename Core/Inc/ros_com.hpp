@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // 버퍼 및 상수 정의
 // ─────────────────────────────────────────────────────────────────────────────
-#define ROS_DMA_BUF_SIZE  128
+#define ROS_DMA_BUF_SIZE  256   // 128→256: TC 재시작 빈도 절반으로 감소
 #define ROS_RX_RING_SIZE  512
 #define ROS_TX_SIZE       128
 
@@ -50,7 +50,8 @@ public:
 
     RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad);
 
-    void StartReceive();
+    void StartReceive();    // 에러 복구용: AbortReceive 후 재시작
+    void RestartReceive();  // TC 이벤트용: DMA 이미 완료, 즉시 재시작
     void OnRxEvent(uint16_t size);
     void Process();
 
