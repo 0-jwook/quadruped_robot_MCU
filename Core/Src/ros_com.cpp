@@ -29,6 +29,7 @@ RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
 }
 
 void RosCom::StartReceive() {
+    HAL_UART_AbortReceive(_huart);
     _dma_pos = 0;
     HAL_UARTEx_ReceiveToIdle_DMA(_huart, _dma_buf, ROS_DMA_BUF_SIZE);
 }
@@ -148,7 +149,13 @@ uint8_t RosCom::RingRead() {
 }
 
 extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
-    if (huart->Instance == USART2 && g_ros_com != nullptr) g_ros_com->OnRxEvent(Size);
+    if (huart->Instance == USART2 && g_ros_com != nullptr) {
+        g_ros_com->OnRxEvent(Size);
+        // TC 이벤트(버퍼 가득 참)이면 DMA를 즉시 재시작
+        if (Size >= ROS_DMA_BUF_SIZE) {
+            g_ros_com->StartReceive();
+        }
+    }
 }
 
 extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
