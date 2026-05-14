@@ -51,8 +51,13 @@ void RosCom::RestartReceive() {
 }
 
 void RosCom::OnRxEvent(uint16_t size) {
-    uint16_t pos   = size % ROS_DMA_BUF_SIZE;
-    uint16_t count = (pos + ROS_DMA_BUF_SIZE - _dma_pos) % ROS_DMA_BUF_SIZE;
+    // TC 이벤트(버퍼 가득): size==ROS_DMA_BUF_SIZE → pos=0
+    // 이 때 (0+256-_dma_pos)%256 수식은 _dma_pos==0이면 count=0이 되어
+    // 버퍼 전체(256바이트)를 유실하는 버그 → TC 여부를 분기해서 처리
+    bool is_tc = (size >= ROS_DMA_BUF_SIZE);
+    uint16_t pos   = is_tc ? 0 : (size % ROS_DMA_BUF_SIZE);
+    uint16_t count = is_tc ? (ROS_DMA_BUF_SIZE - _dma_pos)
+                           : ((pos + ROS_DMA_BUF_SIZE - _dma_pos) % ROS_DMA_BUF_SIZE);
 
     for (uint16_t i = 0; i < count; i++) {
         uint16_t src  = (_dma_pos + i) % ROS_DMA_BUF_SIZE;
