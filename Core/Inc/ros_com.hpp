@@ -53,6 +53,7 @@ public:
     void StartReceive();    // 에러 복구용: AbortReceive 후 재시작
     void RestartReceive();  // TC 이벤트용: DMA 이미 완료, 즉시 재시작
     void OnRxEvent(uint16_t size);
+    void OnUartError();     // UART 에러 카운터 증가
     void Process();
 
     // 텔레메트리 전송
@@ -89,6 +90,10 @@ private:
     VelocityCmd   _last_vel_cmd;
     bool          _new_joint_available;
     uint32_t      _last_cmd_tick;
+
+    // 통신 진단 카운터
+    uint16_t      _crc_err_count;
+    uint16_t      _uart_err_count;
 
     // 장치 상태
     bool _pca_ok;

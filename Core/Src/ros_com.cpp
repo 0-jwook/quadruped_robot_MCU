@@ -18,7 +18,8 @@ RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
     : _huart(huart), _pca9685(pca), _quad(quad),
       _dma_pos(0), _ring_head(0), _ring_tail(0),
       _state(HEADER_1), _current_id(0), _payload_len(0), _payload_idx(0),
-      _checksum(0), _new_joint_available(false), _pca_ok(false), _imu_ok(false)
+      _checksum(0), _new_joint_available(false), _pca_ok(false), _imu_ok(false),
+      _crc_err_count(0), _uart_err_count(0)
 {
     memset(_dma_buf, 0, sizeof(_dma_buf));
     memset((void*)_ring_buf, 0, sizeof(_ring_buf));
@@ -48,6 +49,10 @@ void RosCom::RestartReceive() {
     // AbortReceive 생략으로 재시작 간격(바이트 유실 구간)을 최소화
     _dma_pos = 0;
     HAL_UARTEx_ReceiveToIdle_DMA(_huart, _dma_buf, ROS_DMA_BUF_SIZE);
+}
+
+void RosCom::OnUartError() {
+    _uart_err_count++;
 }
 
 void RosCom::OnRxEvent(uint16_t size) {
@@ -104,6 +109,8 @@ void RosCom::Process() {
             case CHECKSUM:
                 if (byte == _checksum) {
                     HandleBinaryPacket(_current_id, _payload_buf, _payload_len);
+                } else {
+                    _crc_err_count++;
                 }
                 _state = HEADER_1;
                 break;
@@ -141,7 +148,12 @@ void RosCom::SendIMU(float roll, float pitch, float yaw) {
 }
 
 void RosCom::SendHeartbeat() {
-    SendFmt("HB:%lu\n", (unsigned long)HAL_GetTick());
+    SendFmt("HB:%lu,CRC:%u,ERR:%u\n",
+            (unsigned long)HAL_GetTick(),
+            (unsigned)_crc_err_count,
+            (unsigned)_uart_err_count);
+    _crc_err_count  = 0;   // 1초 단위 리셋
+    _uart_err_count = 0;
 }
 
 void RosCom::SetDeviceStatus(bool pca_ok, bool imu_ok) {
@@ -181,6 +193,7 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t S
 
 extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART2 && g_ros_com != nullptr) {
+        g_ros_com->OnUartError();
         HAL_UART_AbortReceive(huart);
         g_ros_com->StartReceive();
     }
