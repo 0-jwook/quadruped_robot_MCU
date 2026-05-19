@@ -104,12 +104,12 @@ void RosCom::HandleBinaryPacket(uint8_t id, uint8_t* payload, uint8_t len) {
 
 bool RosCom::GetJointCmd(JointAngleCmd& cmd) {
     cmd = _last_joint_cmd;
-    return (HAL_GetTick() - _last_cmd_tick < 500);
+    return (HAL_GetTick() - _last_cmd_tick < 2000);
 }
 
 bool RosCom::GetVelocityCmd(VelocityCmd& cmd) {
     cmd = _last_vel_cmd;
-    return (HAL_GetTick() - _last_cmd_tick < 500);
+    return (HAL_GetTick() - _last_cmd_tick < 2000);
 }
 
 void RosCom::SendIMU(float roll, float pitch, float yaw) {
