@@ -182,12 +182,10 @@ uint8_t RosCom::RingRead() {
 }
 
 extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
+    // DMA_CIRCULAR 모드: TC 후 DMA가 자동으로 위치 0으로 복귀
+    // → RestartReceive() 불필요, OnRxEvent에서 위치만 추적
     if (huart->Instance == USART2 && g_ros_com != nullptr) {
         g_ros_com->OnRxEvent(Size);
-        // TC 이벤트(버퍼 가득 참): DMA 이미 완료 → Abort 없이 즉시 재시작
-        if (Size >= ROS_DMA_BUF_SIZE) {
-            g_ros_com->RestartReceive();
-        }
     }
 }
 
