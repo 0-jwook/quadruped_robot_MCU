@@ -1,5 +1,4 @@
 #include "ros_com.hpp"
-#include "usbd_cdc_if.h"   // CubeMX 생성: CDC_Transmit_FS()
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,13 +13,14 @@ static uint8_t CRC8Update(uint8_t crc, uint8_t byte) {
 
 RosCom* g_ros_com = nullptr;
 
-RosCom::RosCom(PCA9685* pca, Quadruped* quad)
-    : _pca9685(pca), _quad(quad),
-      _ring_head(0), _ring_tail(0),
+RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
+    : _huart(huart), _pca9685(pca), _quad(quad),
+      _dma_pos(0), _ring_head(0), _ring_tail(0),
       _state(HEADER_1), _current_id(0), _payload_len(0), _payload_idx(0),
       _checksum(0), _new_joint_available(false), _pca_ok(false), _imu_ok(false),
-      _crc_err_count(0), _usb_err_count(0)
+      _crc_err_count(0), _uart_err_count(0)
 {
+    memset(_dma_buf, 0, sizeof(_dma_buf));
     memset((void*)_ring_buf, 0, sizeof(_ring_buf));
     memset(&_last_joint_cmd, 0, sizeof(_last_joint_cmd));
     memset(&_last_vel_cmd, 0, sizeof(_last_vel_cmd));
@@ -34,15 +34,32 @@ RosCom::RosCom(PCA9685* pca, Quadruped* quad)
     g_ros_com = this;
 }
 
-// ISR 안전: CDC_Receive_FS 콜백에서 호출됨
-void RosCom::FeedBytes(uint8_t* buf, uint32_t len) {
-    for (uint32_t i = 0; i < len; i++) {
+void RosCom::StartReceive() {
+    HAL_UART_AbortReceive(_huart);
+    _dma_pos = 0;
+    HAL_UARTEx_ReceiveToIdle_DMA(_huart, _dma_buf, ROS_DMA_BUF_SIZE);
+}
+
+void RosCom::OnUartError() {
+    _uart_err_count++;
+}
+
+void RosCom::OnRxEvent(uint16_t size) {
+    // TC(버퍼 가득): size==ROS_DMA_BUF_SIZE, DMA_CIRCULAR이므로 재시작 불필요
+    bool is_tc = (size >= ROS_DMA_BUF_SIZE);
+    uint16_t pos   = is_tc ? 0 : (size % ROS_DMA_BUF_SIZE);
+    uint16_t count = is_tc ? (ROS_DMA_BUF_SIZE - _dma_pos)
+                           : ((pos + ROS_DMA_BUF_SIZE - _dma_pos) % ROS_DMA_BUF_SIZE);
+
+    for (uint16_t i = 0; i < count; i++) {
+        uint16_t src  = (_dma_pos + i) % ROS_DMA_BUF_SIZE;
         uint16_t next = (_ring_head + 1) % ROS_RX_RING_SIZE;
         if (next != _ring_tail) {
-            _ring_buf[_ring_head] = buf[i];
+            _ring_buf[_ring_head] = _dma_buf[src];
             _ring_head = next;
         }
     }
+    _dma_pos = pos;
 }
 
 void RosCom::Process() {
@@ -120,9 +137,9 @@ void RosCom::SendHeartbeat() {
     SendFmt("HB:%lu,CRC:%u,ERR:%u\n",
             (unsigned long)HAL_GetTick(),
             (unsigned)_crc_err_count,
-            (unsigned)_usb_err_count);
-    _crc_err_count = 0;
-    _usb_err_count = 0;
+            (unsigned)_uart_err_count);
+    _crc_err_count  = 0;
+    _uart_err_count = 0;
 }
 
 void RosCom::SetDeviceStatus(bool pca_ok, bool imu_ok) {
@@ -131,12 +148,7 @@ void RosCom::SetDeviceStatus(bool pca_ok, bool imu_ok) {
 }
 
 void RosCom::Send(const char* msg) {
-    uint16_t len = (uint16_t)strlen(msg);
-    // CDC_Transmit_FS는 내부 버퍼를 사용하므로 busy 시 잠시 대기
-    uint32_t t = HAL_GetTick();
-    while (CDC_Transmit_FS((uint8_t*)msg, len) == USBD_BUSY) {
-        if (HAL_GetTick() - t > 5) { _usb_err_count++; return; }
-    }
+    HAL_UART_Transmit(_huart, (uint8_t*)msg, strlen(msg), 10);
 }
 
 void RosCom::SendFmt(const char* fmt, ...) {
@@ -155,7 +167,17 @@ uint8_t RosCom::RingRead() {
     return val;
 }
 
-// usbd_cdc_if.c의 CDC_Receive_FS에서 호출하는 C 인터페이스
-extern "C" void RosCom_FeedBytes(uint8_t* buf, uint32_t len) {
-    if (g_ros_com) g_ros_com->FeedBytes(buf, len);
+extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
+    // DMA_CIRCULAR: IDLE/HT/TC 이후에도 DMA가 자동으로 계속 동작
+    if (huart->Instance == USART2 && g_ros_com != nullptr) {
+        g_ros_com->OnRxEvent(Size);
+    }
+}
+
+extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART2 && g_ros_com != nullptr) {
+        g_ros_com->OnUartError();
+        HAL_UART_AbortReceive(huart);
+        g_ros_com->StartReceive();
+    }
 }
