@@ -177,6 +177,11 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t S
 extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART2 && g_ros_com != nullptr) {
         g_ros_com->OnUartError();
+        // ORE(Overrun) 플래그를 명시적으로 클리어하지 않으면
+        // HAL이 UART를 재시작해도 에러가 즉시 재발생해 통신이 완전 차단됨
+        __HAL_UART_CLEAR_OREFLAG(huart);
+        __HAL_UART_CLEAR_FEFLAG(huart);   // Framing Error
+        __HAL_UART_CLEAR_NEFLAG(huart);   // Noise Error
         HAL_UART_AbortReceive(huart);
         g_ros_com->StartReceive();
     }
