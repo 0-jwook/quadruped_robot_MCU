@@ -17,8 +17,9 @@ RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
     : _huart(huart), _pca9685(pca), _quad(quad),
       _dma_pos(0), _ring_head(0), _ring_tail(0),
       _state(HEADER_1), _current_id(0), _payload_len(0), _payload_idx(0),
-      _checksum(0), _new_joint_available(false), _pca_ok(false), _imu_ok(false),
-      _crc_err_count(0), _uart_err_count(0)
+      _checksum(0), _new_joint_available(false),
+      _crc_err_count(0), _uart_err_count(0),
+      _pca_ok(false), _imu_ok(false)
 {
     memset(_dma_buf, 0, sizeof(_dma_buf));
     memset((void*)_ring_buf, 0, sizeof(_ring_buf));
