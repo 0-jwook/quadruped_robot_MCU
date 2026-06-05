@@ -29,10 +29,6 @@ public:
     // FR/BR(오른쪽): 종아리 서보 물리 방향이 반대라 직선=0°
     static const float HOME_ANGLES[4][3];
 
-    // 앉은 자세 (다리를 접어서 몸이 바닥에 내려간 상태)
-    // HOME 에서 thigh 와 calf 를 약 60° 굽혀서 앉음.
-    static const float SIT_ANGLES[4][3];
-
     struct JointConfig {
         int8_t  direction; // 1 또는 -1 (방향 반전)
         float   offset;    // 90도 기준 오프셋 (degree)
@@ -46,8 +42,7 @@ public:
     void SetJointAngle(uint8_t leg_idx, uint8_t joint_idx, float angle);
     void SetLegAngle(uint8_t leg_idx, float hip, float thigh, float calf);
     float GetJointAngle(uint8_t leg_idx, uint8_t joint_idx) const;
-    void SetDefaultPose();   // HOME — 다리 완전히 폄
-    void SetSitPose();       // SIT  — 다리 접어서 앉은 자세 (부팅 시 사용)
+    void SetDefaultPose();
 
     // ── 역기하학 (Inverse Kinematics) ───────────────────────────
     /**
