@@ -18,6 +18,16 @@ const float Quadruped::HOME_ANGLES[4][3] = {
     {95.0f, 180.0f,   10.0f},  // BR (뒷오른쪽): 허벅지 180°=수직하 (좌우 대칭 반전)
 };
 
+// 앉은 자세 — HOME 에서 thigh 와 calf 를 각 60° 굽혀 무릎 접음.
+// 다리가 몸체 아래로 접혀 들어가 로봇이 바닥에 안정적으로 내려앉음.
+// (※ 실제 로봇에서 무릎이 부딪히면 ±10° 단위로 fine-tune 권장)
+const float Quadruped::SIT_ANGLES[4][3] = {
+    {90.0f,  60.0f, 120.0f},  // FL: thigh +60°, calf -60°
+    {95.0f, 108.0f,  60.0f},  // FR: thigh -60° (반대), calf +60° (반대)
+    {90.0f,  70.0f, 120.0f},  // BL: thigh +60°, calf -60°
+    {95.0f, 120.0f,  70.0f},  // BR: thigh -60° (반대), calf +60° (반대)
+};
+
 Quadruped::Quadruped(PCA9685* pca) : _pca(pca) {
     for (int leg = 0; leg < 4; leg++) {
         for (int joint = 0; joint < 3; joint++) {
@@ -65,6 +75,12 @@ float Quadruped::GetJointAngle(uint8_t leg_idx, uint8_t joint_idx) const {
 void Quadruped::SetDefaultPose() {
     for (uint8_t leg = 0; leg < 4; leg++) {
         SetLegAngle(leg, HOME_ANGLES[leg][HIP], HOME_ANGLES[leg][THIGH], HOME_ANGLES[leg][CALF]);
+    }
+}
+
+void Quadruped::SetSitPose() {
+    for (uint8_t leg = 0; leg < 4; leg++) {
+        SetLegAngle(leg, SIT_ANGLES[leg][HIP], SIT_ANGLES[leg][THIGH], SIT_ANGLES[leg][CALF]);
     }
 }
 

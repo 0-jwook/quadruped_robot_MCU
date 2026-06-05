@@ -14,12 +14,14 @@
 #include "MPU6050.hpp"
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 
 /* Private define ------------------------------------------------------------*/
 static const uint32_t CONTROL_PERIOD_MS   =   20;   // 50 Hz
 static const uint32_t IMU_PERIOD_MS       =  100;   // 10 Hz
 static const uint32_t HEARTBEAT_PERIOD_MS = 1000;   //  1 Hz
 static const uint32_t LED_BLINK_MS        =  500;   //  2 Hz
+static const uint32_t STAND_UP_RAMP_MS    = 3000;   // 첫 ROS 명령 후 3초간 부드러운 일어서기
 
 /* Private variables ---------------------------------------------------------*/
 PCA9685    pca(&hi2c1, 0x40);
@@ -52,8 +54,9 @@ int main(void)
   bool imu_ok = (imu.Init() == HAL_OK);
   ros.SetDeviceStatus(pca_ok, imu_ok);
 
+  // 부팅 시 앉은 자세로 시작 (ROS 노드 연결 전까지 유지)
   if (pca_ok) {
-      quad.SetDefaultPose();
+      quad.SetSitPose();
   }
 
   ros.StartReceive();
@@ -62,6 +65,11 @@ int main(void)
   uint32_t last_imu_tick       = HAL_GetTick();
   uint32_t last_heartbeat_tick = HAL_GetTick();
   uint32_t last_led_tick       = HAL_GetTick();
+
+  // 첫 ROS 명령이 도착하면 SIT → 명령 자세로 부드럽게 ramp.
+  bool     first_cmd_received  = false;
+  uint32_t ramp_start_time     = 0;
+  float    ramp_from[4][3];
 
   while (1)
   {
@@ -72,8 +80,33 @@ int main(void)
       if (now - last_control_tick >= CONTROL_PERIOD_MS) {
           JointAngleCmd cmd;
           if (ros.GetJointCmd(cmd)) {
-              for (int i = 0; i < 4; i++) {
-                  quad.SetLegAngle(i, cmd.angles[i*3], cmd.angles[i*3+1], cmd.angles[i*3+2]);
+              if (!first_cmd_received) {
+                  first_cmd_received = true;
+                  ramp_start_time = now;
+                  // ramp 시작점 = 현재 자세 (= SIT)
+                  for (int i = 0; i < 4; i++) {
+                      for (int j = 0; j < 3; j++) {
+                          ramp_from[i][j] = quad.GetJointAngle(i, j);
+                      }
+                  }
+              }
+
+              uint32_t elapsed = now - ramp_start_time;
+              if (elapsed < STAND_UP_RAMP_MS) {
+                  // 부드러운 일어서기: SIT → 명령 자세, ease-in-out (cosine)
+                  float r = (float)elapsed / (float)STAND_UP_RAMP_MS;
+                  r = 0.5f * (1.0f - cosf((float)M_PI * r));
+                  for (int i = 0; i < 4; i++) {
+                      float h = ramp_from[i][0] + (cmd.angles[i*3+0] - ramp_from[i][0]) * r;
+                      float t = ramp_from[i][1] + (cmd.angles[i*3+1] - ramp_from[i][1]) * r;
+                      float c = ramp_from[i][2] + (cmd.angles[i*3+2] - ramp_from[i][2]) * r;
+                      quad.SetLegAngle(i, h, t, c);
+                  }
+              } else {
+                  // 정상 동작
+                  for (int i = 0; i < 4; i++) {
+                      quad.SetLegAngle(i, cmd.angles[i*3], cmd.angles[i*3+1], cmd.angles[i*3+2]);
+                  }
               }
           }
           last_control_tick = now;
