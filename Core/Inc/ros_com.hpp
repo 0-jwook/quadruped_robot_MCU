@@ -5,7 +5,7 @@
 #include "PCA9685.hpp"
 #include "Quadruped.hpp"
 
-#define ROS_DMA_BUF_SIZE  128
+#define ROS_DMA_BUF_SIZE  512
 #define ROS_RX_RING_SIZE  512
 #define ROS_TX_SIZE       128
 
@@ -72,8 +72,11 @@ private:
     bool          _new_joint_available;
     uint32_t      _last_cmd_tick;
 
-    uint16_t _crc_err_count;
-    uint16_t _uart_err_count;
+    uint16_t          _crc_err_count;
+    uint16_t          _uart_err_count;
+    uint16_t          _pkt_ok_count;
+    uint16_t          _wdg_count;
+    volatile uint32_t _last_rx_tick;
 
     bool _pca_ok;
     bool _imu_ok;

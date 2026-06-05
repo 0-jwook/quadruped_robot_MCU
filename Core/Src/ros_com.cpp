@@ -18,7 +18,10 @@ RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
       _dma_pos(0), _ring_head(0), _ring_tail(0),
       _state(HEADER_1), _current_id(0), _payload_len(0), _payload_idx(0),
       _checksum(0), _new_joint_available(false),
+      _last_cmd_tick(0),
       _crc_err_count(0), _uart_err_count(0),
+      _pkt_ok_count(0), _wdg_count(0),
+      _last_rx_tick(0),
       _pca_ok(false), _imu_ok(false)
 {
     memset(_dma_buf, 0, sizeof(_dma_buf));
@@ -31,22 +34,21 @@ RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
         for (int joint = 0; joint < 3; joint++)
             _last_joint_cmd.angles[leg * 3 + joint] = Quadruped::HOME_ANGLES[leg][joint];
 
-    _last_cmd_tick = 0;
     g_ros_com = this;
 }
 
 void RosCom::StartReceive() {
     HAL_UART_AbortReceive(_huart);
     _dma_pos = 0;
+    _state       = HEADER_1;
+    _payload_idx = 0;
+    _checksum    = 0;
     HAL_UARTEx_ReceiveToIdle_DMA(_huart, _dma_buf, ROS_DMA_BUF_SIZE);
-}
-
-void RosCom::OnUartError() {
-    _uart_err_count++;
+    __HAL_DMA_DISABLE_IT(_huart->hdmarx, DMA_IT_HT);  // HT 인터럽트 비활성화
+    _last_rx_tick = HAL_GetTick();
 }
 
 void RosCom::OnRxEvent(uint16_t size) {
-    // TC(버퍼 가득): size==ROS_DMA_BUF_SIZE, DMA_CIRCULAR이므로 재시작 불필요
     bool is_tc = (size >= ROS_DMA_BUF_SIZE);
     uint16_t pos   = is_tc ? 0 : (size % ROS_DMA_BUF_SIZE);
     uint16_t count = is_tc ? (ROS_DMA_BUF_SIZE - _dma_pos)
@@ -60,10 +62,21 @@ void RosCom::OnRxEvent(uint16_t size) {
             _ring_head = next;
         }
     }
+    if (count > 0)
+        _last_rx_tick = HAL_GetTick();
     _dma_pos = pos;
 }
 
+void RosCom::OnUartError() {
+    _uart_err_count++;
+}
+
 void RosCom::Process() {
+    if (HAL_GetTick() - _last_rx_tick > 1000) {
+        _wdg_count++;
+        StartReceive();
+    }
+
     while (!RingEmpty()) {
         uint8_t byte = RingRead();
 
@@ -117,6 +130,7 @@ void RosCom::HandleBinaryPacket(uint8_t id, uint8_t* payload, uint8_t len) {
         memcpy(&_last_joint_cmd, payload, sizeof(JointAngleCmd));
         _new_joint_available = true;
         _last_cmd_tick = HAL_GetTick();
+        _pkt_ok_count++;
     }
 }
 
@@ -135,12 +149,18 @@ void RosCom::SendIMU(float roll, float pitch, float yaw) {
 }
 
 void RosCom::SendHeartbeat() {
-    SendFmt("HB:%lu,CRC:%u,ERR:%u\n",
+    uint8_t cmd_timeout = (HAL_GetTick() - _last_cmd_tick >= 2000) ? 1 : 0;
+    SendFmt("HB:%lu,CRC:%u,ERR:%u,PKT:%u,WDG:%u,TO:%u\n",
             (unsigned long)HAL_GetTick(),
             (unsigned)_crc_err_count,
-            (unsigned)_uart_err_count);
+            (unsigned)_uart_err_count,
+            (unsigned)_pkt_ok_count,
+            (unsigned)_wdg_count,
+            (unsigned)cmd_timeout);
     _crc_err_count  = 0;
     _uart_err_count = 0;
+    _pkt_ok_count   = 0;
+    _wdg_count      = 0;
 }
 
 void RosCom::SetDeviceStatus(bool pca_ok, bool imu_ok) {
@@ -169,7 +189,6 @@ uint8_t RosCom::RingRead() {
 }
 
 extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
-    // DMA_CIRCULAR: IDLE/HT/TC 이후에도 DMA가 자동으로 계속 동작
     if (huart->Instance == USART2 && g_ros_com != nullptr) {
         g_ros_com->OnRxEvent(Size);
     }
@@ -178,11 +197,9 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t S
 extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART2 && g_ros_com != nullptr) {
         g_ros_com->OnUartError();
-        // ORE(Overrun) 플래그를 명시적으로 클리어하지 않으면
-        // HAL이 UART를 재시작해도 에러가 즉시 재발생해 통신이 완전 차단됨
         __HAL_UART_CLEAR_OREFLAG(huart);
-        __HAL_UART_CLEAR_FEFLAG(huart);   // Framing Error
-        __HAL_UART_CLEAR_NEFLAG(huart);   // Noise Error
+        __HAL_UART_CLEAR_FEFLAG(huart);
+        __HAL_UART_CLEAR_NEFLAG(huart);
         HAL_UART_AbortReceive(huart);
         g_ros_com->StartReceive();
     }

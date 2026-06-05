@@ -58,7 +58,24 @@ HAL_StatusTypeDef PCA9685::SetPWM(uint8_t channel, uint16_t on, uint16_t off) {
     buf[3] = (uint8_t)(off >> 8);      // OFF_H
 
     uint8_t reg = 0x06 + (4 * channel);
-    return HAL_I2C_Mem_Write(_hi2c, _addr, reg, 1, buf, 4, 100);
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Write(_hi2c, _addr, reg, 1, buf, 4, 5);
+
+    if (status != HAL_OK) {
+        _err_count++;
+        // STM32F1 I2C BUSY 플래그 버그 복구:
+        //   서보 모터 전기 노이즈로 BUSY 플래그가 영구적으로 고착될 수 있음.
+        //   CR1_SWRST 로 I2C 주변장치를 소프트 리셋한 뒤 PCA9685 재초기화.
+        _hi2c->Instance->CR1 |= I2C_CR1_SWRST;
+        HAL_Delay(1);
+        _hi2c->Instance->CR1 &= ~I2C_CR1_SWRST;
+        HAL_I2C_Init(_hi2c);
+        Init();   // PCA9685 레지스터 재설정 (50 Hz, Auto-Increment)
+        status = HAL_I2C_Mem_Write(_hi2c, _addr, reg, 1, buf, 4, 5);
+        if (status == HAL_OK) _err_count = 0;
+    } else {
+        _err_count = 0;
+    }
+    return status;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,26 +94,5 @@ HAL_StatusTypeDef PCA9685::SetAngle(uint8_t channel, float angle) {
     if (angle > 180.0f) angle = 180.0f;
 
     uint16_t off = (uint16_t)(150.0f + angle * (350.0f / 180.0f));
-    HAL_StatusTypeDef status = SetPWM(channel, 0, off);
-
-    if (status == HAL_OK) {
-        // 성공 — 에러 카운터 초기화
-        _err_count = 0;
-    } else {
-        // 실패 — 연속 에러 카운터 증가
-        _err_count++;
-
-        if (_err_count >= 3) {
-            // 3회 연속 실패 : 외부 전원 재인가 / 전압 강하 / I2C 버스 오류로
-            // PCA9685 가 Sleep 모드로 복귀했을 가능성 → 재초기화 시도
-            HAL_Delay(5);                          // 전원 안정화 대기
-            if (Init() == HAL_OK) {
-                _err_count = 0;
-                status = SetPWM(channel, 0, off);  // 재초기화 후 1회 재시도
-            }
-            // Init() 실패 시 _err_count 유지 — 다음 호출에서도 재시도 계속
-        }
-    }
-
-    return status;
+    return SetPWM(channel, 0, off);
 }

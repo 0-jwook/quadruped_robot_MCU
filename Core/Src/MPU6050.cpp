@@ -76,7 +76,7 @@ void MPU6050::ReadData(float &roll, float &pitch, float &yaw) {
     // 가속도(6B) + 온도(2B) + 자이로(6B) = 14바이트 한 번에 읽기
     uint8_t data[14];
 
-    if (HAL_I2C_Mem_Read(_hi2c, ADDR, 0x3B, 1, data, 14, 100) != HAL_OK) {
+    if (HAL_I2C_Mem_Read(_hi2c, ADDR, 0x3B, 1, data, 14, 10) != HAL_OK) {
         // I2C 실패 시 마지막 유효 값 그대로 반환
         roll  = _roll_cf;
         pitch = _pitch_cf;
