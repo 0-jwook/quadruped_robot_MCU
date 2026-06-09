@@ -3,8 +3,8 @@
 #include <algorithm>
 
 const uint8_t Quadruped::JOINT_CHANNELS[4][3] = {
-    {12, 13, 14},   // FL (앞 좌)
-    { 8,  9, 10},   // FR (앞 우)
+    { 8,  9, 10},   // FL (앞 좌)
+    {12, 13, 14},   // FR (앞 우)
     { 0,  1,  2},   // BL (RL, 뒤 좌)
     { 4,  5,  6}    // BR (RR, 뒤 우)
 };
