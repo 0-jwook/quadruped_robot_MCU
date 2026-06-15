@@ -75,6 +75,13 @@ int main(void)
 
       ros.Process();
 
+      // ROS 명령(ID 0x04)으로 IMU 영점 재캘리브 (로봇이 평지 수평일 때 보낼 것).
+      // ~0.75s 블로킹되지만 의도된 1회성 동작이라 허용.
+      if (imu_ok && ros.ConsumeImuZeroRequest()) {
+          imu.CalibrateZero(100);
+          last_imu_tick = HAL_GetTick();
+      }
+
       if (now - last_control_tick >= CONTROL_PERIOD_MS) {
           JointAngleCmd cmd;
           if (ros.GetJointCmd(cmd)) {

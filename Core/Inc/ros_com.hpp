@@ -49,6 +49,10 @@ public:
     bool GetJointCmd(JointAngleCmd& cmd);
     bool GetVelocityCmd(VelocityCmd& cmd);
 
+    // ID 0x04 (IMU 영점 명령) 수신 시 true 1회 반환 후 클리어.
+    // 메인 루프가 이걸 보고 imu.CalibrateZero() 호출.
+    bool ConsumeImuZeroRequest();
+
 private:
     UART_HandleTypeDef* _huart;
     PCA9685*            _pca9685;
@@ -70,6 +74,7 @@ private:
     JointAngleCmd _last_joint_cmd;
     VelocityCmd   _last_vel_cmd;
     bool          _new_joint_available;
+    bool          _imu_zero_request;     // ID 0x04 수신 플래그
     uint32_t      _last_cmd_tick;
 
     uint16_t          _crc_err_count;

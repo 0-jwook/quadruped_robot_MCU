@@ -18,6 +18,7 @@ RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
       _dma_pos(0), _ring_head(0), _ring_tail(0),
       _state(HEADER_1), _current_id(0), _payload_len(0), _payload_idx(0),
       _checksum(0), _new_joint_available(false),
+      _imu_zero_request(false),
       _last_cmd_tick(0),
       _crc_err_count(0), _uart_err_count(0),
       _pkt_ok_count(0), _wdg_count(0),
@@ -132,6 +133,19 @@ void RosCom::HandleBinaryPacket(uint8_t id, uint8_t* payload, uint8_t len) {
         _last_cmd_tick = HAL_GetTick();
         _pkt_ok_count++;
     }
+    else if (id == 0x04) {
+        // IMU 영점 재캘리브 명령 (payload 없음). 메인 루프가 처리.
+        _imu_zero_request = true;
+        _pkt_ok_count++;
+    }
+}
+
+bool RosCom::ConsumeImuZeroRequest() {
+    if (_imu_zero_request) {
+        _imu_zero_request = false;
+        return true;
+    }
+    return false;
 }
 
 bool RosCom::GetJointCmd(JointAngleCmd& cmd) {
