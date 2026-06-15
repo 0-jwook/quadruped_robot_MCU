@@ -53,7 +53,9 @@ int main(void)
   ros.SetDeviceStatus(pca_ok, imu_ok);
 
   if (pca_ok) {
-      quad.SetDefaultPose();
+      // 부팅 시 앉은 자세로 시작 (뻣뻣한 일자 대신).
+      // ROS 가 연결되면 SIT→STAND 로 부드럽게 ramp 하여 기립.
+      quad.SetSitPose();
   }
 
   // IMU 영점 캘리브레이션 — 부팅 시 로봇이 평지에 수평으로 있어야 함.

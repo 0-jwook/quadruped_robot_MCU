@@ -18,6 +18,16 @@ const float Quadruped::HOME_ANGLES[4][3] = {
     {95.0f, 180.0f,   10.0f},  // BR (뒷오른쪽): 허벅지 180°=수직하 (좌우 대칭 반전)
 };
 
+// 앉은 자세 (부팅 시) — ROS body_height=0.085 stand 자세의 서보각과 일치시켜
+// ROS 가 연결되어 ramp 를 시작할 때 이음매 없이 부드럽게 기립하도록 함.
+// (ROS hardware_bridge IK + SERVO_TRIMS 결과 기준으로 산출)
+const float Quadruped::SIT_ANGLES[4][3] = {
+    {91.0f, 102.0f,  26.0f},  // FL
+    {97.0f,  69.0f, 145.0f},  // FR
+    {90.0f, 105.0f,  31.0f},  // BL (RL)
+    {96.0f,  89.0f, 156.0f},  // BR (RR)
+};
+
 Quadruped::Quadruped(PCA9685* pca) : _pca(pca) {
     for (int leg = 0; leg < 4; leg++) {
         for (int joint = 0; joint < 3; joint++) {
@@ -65,6 +75,12 @@ float Quadruped::GetJointAngle(uint8_t leg_idx, uint8_t joint_idx) const {
 void Quadruped::SetDefaultPose() {
     for (uint8_t leg = 0; leg < 4; leg++) {
         SetLegAngle(leg, HOME_ANGLES[leg][HIP], HOME_ANGLES[leg][THIGH], HOME_ANGLES[leg][CALF]);
+    }
+}
+
+void Quadruped::SetSitPose() {
+    for (uint8_t leg = 0; leg < 4; leg++) {
+        SetLegAngle(leg, SIT_ANGLES[leg][HIP], SIT_ANGLES[leg][THIGH], SIT_ANGLES[leg][CALF]);
     }
 }
 
