@@ -17,7 +17,7 @@
 
 /* Private define ------------------------------------------------------------*/
 static const uint32_t CONTROL_PERIOD_MS   =   20;   // 50 Hz
-static const uint32_t IMU_PERIOD_MS       =  100;   // 10 Hz
+static const uint32_t IMU_PERIOD_MS       =   20;   // 50 Hz (수평유지 반응성 ↑)
 static const uint32_t HEARTBEAT_PERIOD_MS = 1000;   //  1 Hz
 static const uint32_t LED_BLINK_MS        =  500;   //  2 Hz
 
