@@ -56,6 +56,12 @@ int main(void)
       quad.SetDefaultPose();
   }
 
+  // IMU 영점 캘리브레이션 — 부팅 시 로봇이 평지에 수평으로 있어야 함.
+  // 현재 자세를 roll=pitch=0 기준으로 저장 (센서 bias + 장착 기울기 상쇄).
+  if (imu_ok) {
+      imu.CalibrateZero(100);
+  }
+
   ros.StartReceive();
 
   uint32_t last_control_tick   = HAL_GetTick();

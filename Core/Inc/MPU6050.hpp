@@ -20,6 +20,11 @@ public:
     // 내부에서 상보 필터 적용 — 호출 주기가 일정할수록 정확도 높아짐
     void ReadData(float &roll, float &pitch, float &yaw);
 
+    // 영점 캘리브레이션 — 로봇이 평지에 수평으로 있을 때 호출.
+    // 현재 자세를 roll=pitch=0 기준으로 저장 (센서 bias + 장착 기울기 상쇄).
+    // 부팅 시 1회 호출 권장. samples 만큼 평균.
+    void CalibrateZero(uint16_t samples = 100);
+
 private:
     I2C_HandleTypeDef* _hi2c;
 
@@ -33,6 +38,8 @@ private:
 
     float    _roll_cf;      // 필터링된 Roll  (도)
     float    _pitch_cf;     // 필터링된 Pitch (도)
+    float    _roll_off;     // 영점 offset (도) — CalibrateZero 에서 설정
+    float    _pitch_off;    // 영점 offset (도)
     uint32_t _last_tick;    // 마지막 호출 시각 (HAL_GetTick)
     bool     _filter_init;  // 첫 호출 여부 — 초기화에만 사용
 };

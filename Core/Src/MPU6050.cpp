@@ -7,6 +7,7 @@
 MPU6050::MPU6050(I2C_HandleTypeDef* hi2c)
     : _hi2c(hi2c),
       _roll_cf(0.0f), _pitch_cf(0.0f),
+      _roll_off(0.0f), _pitch_off(0.0f),
       _last_tick(0),  _filter_init(false)
 {}
 
@@ -77,9 +78,9 @@ void MPU6050::ReadData(float &roll, float &pitch, float &yaw) {
     uint8_t data[14];
 
     if (HAL_I2C_Mem_Read(_hi2c, ADDR, 0x3B, 1, data, 14, 10) != HAL_OK) {
-        // I2C 실패 시 마지막 유효 값 그대로 반환
-        roll  = _roll_cf;
-        pitch = _pitch_cf;
+        // I2C 실패 시 마지막 유효 값 그대로 반환 (영점 보정 적용)
+        roll  = _roll_cf  - _roll_off;
+        pitch = _pitch_cf - _pitch_off;
         yaw   = 0.0f;
         return;
     }
@@ -121,7 +122,40 @@ void MPU6050::ReadData(float &roll, float &pitch, float &yaw) {
                   + (1.0f - CF_ALPHA) * pitch_acc;
     }
 
-    roll  = _roll_cf;
-    pitch = _pitch_cf;
+    // 영점 offset 적용 (평지 수평 = 0)
+    roll  = _roll_cf  - _roll_off;
+    pitch = _pitch_cf - _pitch_off;
     yaw   = 0.0f;  // 자력계 없이는 계산 불가
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 영점 캘리브레이션
+//   로봇이 평지에 수평으로 있을 때 1회 호출 (부팅 시).
+//   상보 필터를 워밍업한 뒤 samples 만큼 평균내어 현재 자세를 영점으로 저장.
+//   이후 ReadData 는 (필터값 - 영점) 을 반환 → 센서 bias·장착 기울기 상쇄.
+// ─────────────────────────────────────────────────────────────────────────────
+void MPU6050::CalibrateZero(uint16_t samples) {
+    float r, p, y;
+
+    // 기존 offset 제거 후 측정
+    _roll_off  = 0.0f;
+    _pitch_off = 0.0f;
+
+    // 상보 필터 워밍업 (정착)
+    for (int i = 0; i < 50; i++) {
+        ReadData(r, p, y);
+        HAL_Delay(5);
+    }
+
+    // 평균
+    float rs = 0.0f, ps = 0.0f;
+    for (uint16_t i = 0; i < samples; i++) {
+        ReadData(r, p, y);
+        rs += r;
+        ps += p;
+        HAL_Delay(5);
+    }
+
+    _roll_off  = rs / (float)samples;
+    _pitch_off = ps / (float)samples;
 }
