@@ -15,6 +15,10 @@ Release/
 
 # IDE settings (machine-specific)
 .settings/
+.metadata/
+
+# 로컬 전용 트러블슈팅 노트 (GitHub 비공개)
+TROUBLESHOOTING.md
 
 # macOS
 .DS_Store
