@@ -75,6 +75,7 @@ private:
     VelocityCmd   _last_vel_cmd;
     bool          _new_joint_available;
     bool          _imu_zero_request;     // ID 0x04 수신 플래그
+    bool          _cmd_received;         // 실제 joint 명령(ID 0x03)을 한 번이라도 받았는가
     uint32_t      _last_cmd_tick;
 
     uint16_t          _crc_err_count;

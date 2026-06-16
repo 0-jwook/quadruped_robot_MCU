@@ -19,6 +19,7 @@ RosCom::RosCom(UART_HandleTypeDef* huart, PCA9685* pca, Quadruped* quad)
       _state(HEADER_1), _current_id(0), _payload_len(0), _payload_idx(0),
       _checksum(0), _new_joint_available(false),
       _imu_zero_request(false),
+      _cmd_received(false),
       _last_cmd_tick(0),
       _crc_err_count(0), _uart_err_count(0),
       _pkt_ok_count(0), _wdg_count(0),
@@ -130,6 +131,7 @@ void RosCom::HandleBinaryPacket(uint8_t id, uint8_t* payload, uint8_t len) {
     else if (id == 0x03 && len == sizeof(JointAngleCmd)) {
         memcpy(&_last_joint_cmd, payload, sizeof(JointAngleCmd));
         _new_joint_available = true;
+        _cmd_received = true;
         _last_cmd_tick = HAL_GetTick();
         _pkt_ok_count++;
     }
@@ -150,7 +152,9 @@ bool RosCom::ConsumeImuZeroRequest() {
 
 bool RosCom::GetJointCmd(JointAngleCmd& cmd) {
     cmd = _last_joint_cmd;
-    return (HAL_GetTick() - _last_cmd_tick < 2000);
+    // 실제 명령을 한 번도 못 받았으면 false — 부팅 직후(tick<2000) _last_cmd_tick=0
+    // 때문에 timeout 검사가 오인해 HOME_ANGLES 를 적용, SIT 자세를 덮어쓰던 버그 방지.
+    return _cmd_received && (HAL_GetTick() - _last_cmd_tick < 2000);
 }
 
 bool RosCom::GetVelocityCmd(VelocityCmd& cmd) {
