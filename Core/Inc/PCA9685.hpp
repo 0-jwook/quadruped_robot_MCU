@@ -16,7 +16,13 @@ public:
     explicit PCA9685(I2C_HandleTypeDef* hi2c, uint8_t addr = 0x40);
 
     // PCA9685 초기화 — 50 Hz PWM, Auto-Increment 활성화
-    HAL_StatusTypeDef Init();
+    //   start_outputs=true  : SLEEP 해제까지 수행(출력 즉시 ON, 런타임/복구용 기본)
+    //   start_outputs=false : SLEEP 유지(출력 OFF). 부팅 시 SIT 값을 먼저 적재한 뒤
+    //                         WakeUp() 으로 켜기 위함 — 이전 자세가 잠깐 출력되는 것 방지.
+    HAL_StatusTypeDef Init(bool start_outputs = true);
+
+    // SLEEP 해제 — 출력 ON. Init(false) 로 적재한 값으로 출력을 시작한다.
+    HAL_StatusTypeDef WakeUp();
 
     // 각도로 서보 제어 (0.0 ~ 180.0 도)
     HAL_StatusTypeDef SetAngle(uint8_t channel, float angle);

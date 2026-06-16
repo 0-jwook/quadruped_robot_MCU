@@ -10,7 +10,7 @@ PCA9685::PCA9685(I2C_HandleTypeDef* hi2c, uint8_t addr)
 // ─────────────────────────────────────────────────────────────────────────────
 // 초기화 — 50 Hz PWM, Auto-Increment 활성화
 // ─────────────────────────────────────────────────────────────────────────────
-HAL_StatusTypeDef PCA9685::Init() {
+HAL_StatusTypeDef PCA9685::Init(bool start_outputs) {
     HAL_StatusTypeDef status;
 
     // 0. 장치 응답 확인 (3회 재시도)
@@ -31,14 +31,26 @@ HAL_StatusTypeDef PCA9685::Init() {
     if (status != HAL_OK) return status;
     HAL_Delay(5);
 
-    // 3. Sleep 해제 + Auto-Increment 활성화
-    //    MODE1: RESTART=0, AI=1(0x20), SLEEP=0
-    cmd = 0x20;
+    // 3. Auto-Increment 활성화. start_outputs 면 동시에 Sleep 해제(출력 ON).
+    //    MODE1: RESTART=0, AI=1(0x20). SLEEP 비트(0x10)는 출력 보류 시 유지.
+    //    start_outputs=true  → 0x20 (AI=1, SLEEP=0) : 즉시 출력
+    //    start_outputs=false → 0x30 (AI=1, SLEEP=1) : 출력 보류 (WakeUp() 대기)
+    cmd = start_outputs ? 0x20 : 0x30;
     status = HAL_I2C_Mem_Write(_hi2c, _addr, 0x00, 1, &cmd, 1, 10);
     if (status != HAL_OK) return status;
     HAL_Delay(5);
 
     return HAL_OK;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WakeUp — SLEEP 해제(출력 ON). Init(false) 로 적재한 펄스로 출력을 시작한다.
+// ─────────────────────────────────────────────────────────────────────────────
+HAL_StatusTypeDef PCA9685::WakeUp() {
+    uint8_t cmd = 0x20;  // MODE1: AI=1, SLEEP=0
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Write(_hi2c, _addr, 0x00, 1, &cmd, 1, 10);
+    HAL_Delay(1);        // 오실레이터 안정화 (>500us)
+    return status;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

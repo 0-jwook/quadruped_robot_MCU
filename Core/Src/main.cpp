@@ -48,14 +48,18 @@ int main(void)
   MX_I2C1_Init();
   MX_I2C2_Init();
 
-  bool pca_ok = (pca.Init() == HAL_OK);
+  // 출력 보류 상태(SLEEP)로 초기화 — 워치 리셋 시 PCA9685 에 남아있던 이전 자세가
+  // 출력 ON 순간 잠깐 적용되어 '쫙 펴짐'이 생기던 문제 방지.
+  bool pca_ok = (pca.Init(false) == HAL_OK);
   bool imu_ok = (imu.Init() == HAL_OK);
   ros.SetDeviceStatus(pca_ok, imu_ok);
 
   if (pca_ok) {
-      // 부팅 시 앉은 자세로 시작 (뻣뻣한 일자 대신).
+      // 출력을 켜기 전에 SIT 펄스를 먼저 레지스터에 적재한 뒤 WakeUp →
+      // 서보가 처음 받는 신호가 곧바로 앉은 자세가 된다 (뻣뻣한 일자 대신).
       // ROS 가 연결되면 SIT→STAND 로 부드럽게 ramp 하여 기립.
       quad.SetSitPose();
+      pca.WakeUp();
   }
 
   // IMU 영점 캘리브레이션 — 부팅 시 로봇이 평지에 수평으로 있어야 함.
